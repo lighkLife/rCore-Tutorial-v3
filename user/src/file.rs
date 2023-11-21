@@ -28,3 +28,7 @@ pub fn read(fd: usize, buf: &mut [u8]) -> isize {
 pub fn write(fd: usize, buf: &[u8]) -> isize {
     sys_write(fd, buf)
 }
+
+pub fn uart_test() -> isize {
+    sys_uart_test()
+}

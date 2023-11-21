@@ -12,6 +12,7 @@ const SYSCALL_SLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
 const SYSCALL_GET_TIME: usize = 169;
+const SYSCALL_UART_TEST: usize = 170;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_FORK: usize = 220;
 const SYSCALL_EXEC: usize = 221;
@@ -109,6 +110,10 @@ pub fn sys_kill(pid: usize, signal: i32) -> isize {
 
 pub fn sys_get_time() -> isize {
     syscall(SYSCALL_GET_TIME, [0, 0, 0])
+}
+
+pub fn sys_uart_test() -> isize {
+    syscall(SYSCALL_UART_TEST, [0, 0, 0])
 }
 
 pub fn sys_getpid() -> isize {
