@@ -2,13 +2,21 @@
 #![no_main]
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
+#![feature(type_alias_impl_trait)]
+
+extern crate alloc;
+#[macro_use]
+extern crate bitflags;
+
+use lazy_static::*;
+
+use sync::UPIntrFreeCell;
 
 //use crate::drivers::{GPU_DEVICE, KEYBOARD_DEVICE, MOUSE_DEVICE, INPUT_CONDVAR};
 use crate::drivers::{GPU_DEVICE, KEYBOARD_DEVICE, MOUSE_DEVICE};
-extern crate alloc;
+use crate::drivers::chardev::CharDevice;
+use crate::drivers::chardev::UART;
 
-#[macro_use]
-extern crate bitflags;
 
 #[path = "boards/qemu.rs"]
 mod board;
@@ -28,9 +36,6 @@ mod task;
 mod timer;
 mod trap;
 
-use crate::drivers::chardev::CharDevice;
-use crate::drivers::chardev::UART;
-
 core::arch::global_asm!(include_str!("entry.asm"));
 
 fn clear_bss() {
@@ -43,9 +48,6 @@ fn clear_bss() {
             .fill(0);
     }
 }
-
-use lazy_static::*;
-use sync::UPIntrFreeCell;
 
 lazy_static! {
     pub static ref DEV_NON_BLOCKING_ACCESS: UPIntrFreeCell<bool> =

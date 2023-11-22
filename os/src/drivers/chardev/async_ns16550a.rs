@@ -1,12 +1,19 @@
+use alloc::collections::VecDeque;
+use alloc::sync::Arc;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll, Waker};
+use core::task::Poll::{Pending, Ready};
+
+use bitflags::*;
+use volatile::{ReadOnly, Volatile, WriteOnly};
+
+use crate::sync::UPIntrFreeCell;
+
 ///! Ref: https://www.lammertbies.nl/comm/info/serial-uart
 ///! Ref: ns16550a datasheet: https://datasheetspdf.com/pdf-file/605590/NationalSemiconductor/NS16550A/1
 ///! Ref: ns16450 datasheet: https://datasheetspdf.com/pdf-file/1311818/NationalSemiconductor/NS16450/1
 use super::CharDevice;
-use crate::sync::{Condvar, UPIntrFreeCell};
-use crate::task::schedule;
-use alloc::collections::VecDeque;
-use bitflags::*;
-use volatile::{ReadOnly, Volatile, WriteOnly};
 
 bitflags! {
     /// InterruptEnableRegister
@@ -72,6 +79,7 @@ struct WriteWithoutDLAB {
 
 pub struct NS16550aRaw {
     base_addr: usize,
+    waker_list: VecDeque<Waker>,
 }
 
 impl NS16550aRaw {
@@ -84,7 +92,7 @@ impl NS16550aRaw {
     }
 
     pub fn new(base_addr: usize) -> Self {
-        Self { base_addr }
+        Self { base_addr, waker_list: VecDeque::new() }
     }
 
     pub fn init(&mut self) {
@@ -98,99 +106,104 @@ impl NS16550aRaw {
         read_end.ier.write(ier);
     }
 
-    pub fn read(&mut self) -> Option<u8> {
-        let read_end = self.read_end();
-        let lsr = read_end.lsr.read();
-        if lsr.contains(LSR::DATA_AVAILABLE) {
-            Some(read_end.rbr.read())
+    pub fn read(self: &Arc<Self>) -> AsyncCharReader {
+        AsyncCharReader {
+            raw: self.clone()
+        }
+    }
+
+    pub fn write(self: &Arc<Self>, ch: u8) -> AsyncCharWriter {
+        AsyncCharWriter {
+            raw: self.clone(),
+            ch,
+        }
+    }
+}
+
+
+struct AsyncCharWriter {
+    raw: Arc<NS16550aRaw>,
+    ch: u8,
+}
+
+impl Future for AsyncCharWriter {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let write_end = self.raw.write_end();
+        if write_end.lsr.read().contains(LSR::THR_EMPTY) {
+            // writable
+            write_end.thr.write(self.ch);
+            Ready(())
         } else {
-            None
-        }
-    }
-
-
-    pub fn write(&mut self, ch: u8) {
-        let write_end = self.write_end();
-        loop {
-            if write_end.lsr.read().contains(LSR::THR_EMPTY) {
-                write_end.thr.write(ch);
-                break;
-            }
+            let waker = cx.waker().clone();
+            self.raw.waker_list.push_back(waker);
+            Pending
         }
     }
 }
 
-struct NS16550aInner {
-    ns16550a: NS16550aRaw,
-    read_buffer: VecDeque<u8>,
+struct AsyncCharReader {
+    raw: Arc<NS16550aRaw>,
 }
+
+impl Future for AsyncCharReader {
+    type Output = u8;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let read_end = self.raw.read_end();
+        if read_end.lsr.read().contains(LSR::DATA_AVAILABLE) {
+            // writable
+            let ch = read_end.rbr.read();
+            Ready(ch)
+        } else {
+            let waker = cx.waker().clone();
+            self.raw.waker_list.push_back(waker);
+            Pending
+        }
+    }
+}
+
 
 pub struct AsyncNS16550a<const BASE_ADDR: usize> {
-    inner: UPIntrFreeCell<NS16550aInner>,
-    condvar: Condvar,
+    inner: UPIntrFreeCell<NS16550aRaw>,
 }
-
 
 impl<const BASE_ADDR: usize> AsyncNS16550a<BASE_ADDR> {
     pub fn new() -> Self {
-        let inner = NS16550aInner {
-            ns16550a: NS16550aRaw::new(BASE_ADDR),
-            read_buffer: VecDeque::new(),
-        };
+        let inner = NS16550aRaw::new(BASE_ADDR);
         //inner.ns16550a.init();
         Self {
             inner: unsafe { UPIntrFreeCell::new(inner) },
-            condvar: Condvar::new(),
         }
     }
 
     pub fn read_buffer_is_empty(&self) -> bool {
-        self.inner
-            .exclusive_session(|inner| inner.read_buffer.is_empty())
+        true
     }
-
-
-
-
 }
-
-
 
 impl<const BASE_ADDR: usize> CharDevice for AsyncNS16550a<BASE_ADDR> {
     fn init(&self) {
         let mut inner = self.inner.exclusive_access();
-        inner.ns16550a.init();
+        inner.init();
         drop(inner);
     }
 
-    fn read(&self) -> u8 {
-        loop {
-            let mut inner = self.inner.exclusive_access();
-            if let Some(ch) = inner.read_buffer.pop_front() {
-                return ch;
-            } else {
-                let task_cx_ptr = self.condvar.wait_no_sched();
-                drop(inner);
-                schedule(task_cx_ptr);
-            }
-        }
-    }
-
-
-    fn write(&self, ch: u8) {
+    async fn read(&self) -> u8 {
         let mut inner = self.inner.exclusive_access();
-        inner.ns16550a.write(ch);
+        inner.read().await
     }
+    async fn write(&self, ch: u8) {
+        let mut inner = self.inner.exclusive_access();
+        inner.write(ch).await
+    }
+
     fn handle_irq(&self) {
-        let mut count = 0;
         self.inner.exclusive_session(|inner| {
-            while let Some(ch) = inner.ns16550a.read() {
-                count += 1;
-                inner.read_buffer.push_back(ch);
+            if let Some(waker) = inner.waker_list.pop_front() {
+                waker.clone().wake();
             }
         });
-        if count > 0 {
-            self.condvar.signal();
-        }
     }
 }
+

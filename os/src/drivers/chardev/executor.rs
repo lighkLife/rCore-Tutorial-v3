@@ -1,4 +1,3 @@
-// #[cfg(feature = "async")]
 pub mod thread {
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, Ordering};
@@ -20,8 +19,23 @@ pub mod thread {
     }
 
     #[export_name = "__work_finish"]
-    fn __work_finish(_context: *mut ()) {
+    fn __work_finish() {
         SIGNAL_WORK_FINISH.store(true, Ordering::SeqCst);
+    }
+
+    #[derive(Clone, Copy)]
+    pub struct WorkMarker();
+
+    unsafe impl Send for WorkMarker {}
+    unsafe impl Sync for WorkMarker {}
+
+    impl WorkMarker {
+        pub(crate) fn mark_finish(self) {
+            extern "Rust" {
+                fn __work_finish();
+            }
+            unsafe { __work_finish() };
+        }
     }
 
     /// RISCV32 Executor
@@ -64,6 +78,7 @@ pub mod thread {
                 unsafe {
                     self.inner.poll();
                     if SIGNAL_WORK_FINISH.load(Ordering::SeqCst) {
+                        //work finish
                         break;
                     }
                     // we do not care about race conditions between the load and store operations, interrupts

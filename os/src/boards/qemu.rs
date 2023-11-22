@@ -1,3 +1,8 @@
+use crate::drivers::{KEYBOARD_DEVICE, MOUSE_DEVICE};
+use crate::drivers::block::BLOCK_DEVICE;
+use crate::drivers::chardev::{ASYNC_UART, CharDevice, UART};
+use crate::drivers::plic::{IntrTargetPriority, PLIC};
+
 pub const CLOCK_FREQ: usize = 12500000;
 
 pub const MMIO: &[(usize, usize)] = &[
@@ -8,7 +13,12 @@ pub const MMIO: &[(usize, usize)] = &[
 ];
 
 pub type BlockDeviceImpl = crate::drivers::block::VirtIOBlock;
+
+#[cfg(not(feature = "async"))]
 pub type CharDeviceImpl = crate::drivers::chardev::NS16550a<VIRT_UART>;
+#[cfg(feature = "async")]
+pub type AsyncCharDeviceImpl = crate::drivers::chardev::AsyncNS16550a<VIRT_UART>;
+
 
 pub const VIRT_PLIC: usize = 0xC00_0000;
 pub const VIRT_UART: usize = 0x1000_0000;
@@ -16,11 +26,6 @@ pub const VIRT_UART: usize = 0x1000_0000;
 pub const VIRTGPU_XRES: u32 = 1280;
 #[allow(unused)]
 pub const VIRTGPU_YRES: u32 = 800;
-
-use crate::drivers::block::BLOCK_DEVICE;
-use crate::drivers::chardev::{CharDevice, UART};
-use crate::drivers::plic::{IntrTargetPriority, PLIC};
-use crate::drivers::{KEYBOARD_DEVICE, MOUSE_DEVICE};
 
 pub fn device_init() {
     use riscv::register::sie;
@@ -47,7 +52,7 @@ pub fn irq_handler() {
         5 => KEYBOARD_DEVICE.handle_irq(),
         6 => MOUSE_DEVICE.handle_irq(),
         8 => BLOCK_DEVICE.handle_irq(),
-        10 => UART.handle_irq(),
+        10 => ASYNC_UART.handle_irq(),
         _ => panic!("unsupported IRQ {}", intr_src_id),
     }
     plic.complete(0, IntrTargetPriority::Supervisor, intr_src_id);

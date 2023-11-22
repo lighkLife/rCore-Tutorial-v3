@@ -1,14 +1,18 @@
-mod ns16550a;
-mod raw_ns16550a;
-mod executor;
-
-use crate::board::CharDeviceImpl;
 use alloc::sync::Arc;
+
 use lazy_static::*;
+
+pub use executor::thread::{Executor, WorkMarker};
+pub use async_ns16550a::AsyncNS16550a;
 pub use ns16550a::NS16550a;
 
-#[cfg(feature = "async")]
-pub use executor::thread::Executor;
+
+use crate::board::AsyncCharDeviceImpl;
+
+
+mod async_ns16550a;
+mod ns16550a;
+mod executor;
 
 pub trait CharDevice {
     fn init(&self);
@@ -17,11 +21,11 @@ pub trait CharDevice {
     fn handle_irq(&self);
 }
 
+#[cfg(not(feature = "async"))]
 lazy_static! {
     pub static ref UART: Arc<CharDeviceImpl> = Arc::new(CharDeviceImpl::new());
 }
 
-// #[cfg(feature = "async")]
-// lazy_static! {
-//     pub static ref ASYNC_UART: Arc<CharDeviceImpl> = Arc::new(CharDeviceImpl::new());
-// }
+lazy_static! {
+    pub static ref ASYNC_UART: Arc<AsyncCharDeviceImpl> = Arc::new(AsyncCharDeviceImpl::new());
+}

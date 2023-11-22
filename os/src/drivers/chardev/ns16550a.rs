@@ -5,15 +5,8 @@ use super::CharDevice;
 use crate::sync::{Condvar, UPIntrFreeCell};
 use crate::task::schedule;
 use alloc::collections::VecDeque;
-use alloc::vec;
-use alloc::vec::Vec;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, Poll, Waker};
-use core::task::Poll::{Pending, Ready};
 use bitflags::*;
 use volatile::{ReadOnly, Volatile, WriteOnly};
-use crate::board::irq_handler;
 
 bitflags! {
     /// InterruptEnableRegister
@@ -115,7 +108,8 @@ impl NS16550aRaw {
         }
     }
 
-    pub async fn write(&mut self, ch: u8) {
+
+    pub fn write(&mut self, ch: u8) {
         let write_end = self.write_end();
         loop {
             if write_end.lsr.read().contains(LSR::THR_EMPTY) {
@@ -126,17 +120,16 @@ impl NS16550aRaw {
     }
 }
 
-
 struct NS16550aInner {
     ns16550a: NS16550aRaw,
     read_buffer: VecDeque<u8>,
 }
 
-
 pub struct NS16550a<const BASE_ADDR: usize> {
     inner: UPIntrFreeCell<NS16550aInner>,
-    waker_list: VecDeque<Waker>,
+    condvar: Condvar,
 }
+
 
 impl<const BASE_ADDR: usize> NS16550a<BASE_ADDR> {
     pub fn new() -> Self {
@@ -147,7 +140,7 @@ impl<const BASE_ADDR: usize> NS16550a<BASE_ADDR> {
         //inner.ns16550a.init();
         Self {
             inner: unsafe { UPIntrFreeCell::new(inner) },
-            waker_list: VecDeque::new(),
+            condvar: Condvar::new(),
         }
     }
 
@@ -156,6 +149,7 @@ impl<const BASE_ADDR: usize> NS16550a<BASE_ADDR> {
             .exclusive_session(|inner| inner.read_buffer.is_empty())
     }
 }
+
 
 impl<const BASE_ADDR: usize> CharDevice for NS16550a<BASE_ADDR> {
     fn init(&self) {
@@ -176,41 +170,22 @@ impl<const BASE_ADDR: usize> CharDevice for NS16550a<BASE_ADDR> {
             }
         }
     }
-    async fn write(&self, ch: u8) {
-        let mut inner = self.inner.exclusive_access();
-        inner.ns16550a.write(ch).await;
-    }
 
-    fn handle_irq(&mut self) {
+
+    fn write(&self, ch: u8) {
+        let mut inner = self.inner.exclusive_access();
+        inner.ns16550a.write(ch);
+    }
+    fn handle_irq(&self) {
+        let mut count = 0;
         self.inner.exclusive_session(|inner| {
-            if let Some(ch) = inner.ns16550a.read() {
+            while let Some(ch) = inner.ns16550a.read() {
+                count += 1;
                 inner.read_buffer.push_back(ch);
             }
-            if let Some(waker) = self.waker_list.pop() {
-                waker.clone().wake();
-            }
         });
-    }
-}
-
-struct AsyncCharWriter<const BASE_ADDR: usize> {
-    uart: NS16550a<BASE_ADDR>,
-    waker_list: VecDeque<Waker>,
-}
-
-impl<const BASE_ADDR: usize> Future for AsyncCharWriter<BASE_ADDR> {
-    type Output = ();
-
-    fn poll(&mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let uart = self.uart.inner.exclusive_access();
-        let write_end = uart.ns16550a.write_end();
-        if write_end.lsr.read().contains(LSR::THR_EMPTY) {
-            // writable
-            Ready()
-        } else {
-            let waker = cx.waker().clone();
-            self.waker_list.push_back(waker);
-            Pending
+        if count > 0 {
+            self.condvar.signal();
         }
     }
 }

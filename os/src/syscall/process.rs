@@ -1,16 +1,18 @@
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+
+use embassy_executor::Spawner;
+use static_cell::StaticCell;
+
+use crate::drivers::chardev::{CharDevice, Executor, ASYNC_UART, UART, WorkMarker};
 use crate::fs::{open_file, OpenFlags};
 use crate::mm::{translated_ref, translated_refmut, translated_str};
 use crate::task::{
     current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
-    suspend_current_and_run_next, SignalFlags,
+    SignalFlags, suspend_current_and_run_next,
 };
-use crate::timer::{get_time, get_time_ms};
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
-use embassy_executor::Spawner;
-use static_cell::StaticCell;
-use crate::drivers::chardev::{UART, CharDevice, Executor};
+use crate::timer::get_time_ms;
 
 pub fn sys_exit(exit_code: i32) -> ! {
     exit_current_and_run_next(exit_code);
@@ -26,23 +28,23 @@ pub fn sys_get_time() -> isize {
     get_time_ms() as isize
 }
 
-// #[cfg(feature = "sync")]
-// pub fn uart_test() -> isize {
-//     let start = get_time_ms();
-//     for i in 0..20 {
-//         for ch in 33..123 {
-//             for _ in 0..250 {
-//                 UART.write(ch as u8);
-//             }
-//             UART.write('\n' as u8);
-//         }
-//     }
-//     (get_time_ms() - start) as isize
-// }
+pub fn uart_test() -> isize {
+    let start = get_time_ms();
+    for i in 0..20 {
+        for ch in 33..123 {
+            for _ in 0..250 {
+                UART.write(ch as u8);
+            }
+            UART.write('\n' as u8);
+        }
+    }
+    (get_time_ms() - start) as isize
+}
+
 
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-#[cfg(feature = "async")]
+
 pub fn async_uart_test() -> isize {
     let start = get_time_ms();
     let executor = EXECUTOR.init(Executor::new());
@@ -53,17 +55,19 @@ pub fn async_uart_test() -> isize {
 }
 
 #[embassy_executor::task]
-pub async fn send_data(spawner: Spawner) {
+pub async fn send_data(_spawner: Spawner) {
     for i in 0..20 {
         for ch in 33..123 {
             for _ in 0..250 {
-                UART.write(ch as u8).await;
+                ASYNC_UART.write(ch as u8).await;
             }
-            UART.write('\n' as u8).await;
+            ASYNC_UART.write('\n' as u8).await;
         }
     }
+    // mark work as finished
+   let mark =  WorkMarker{};
+    mark.mark_finish();
 }
-
 
 
 pub fn sys_getpid() -> isize {
