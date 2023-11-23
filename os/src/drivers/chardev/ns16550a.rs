@@ -131,6 +131,7 @@ pub struct NS16550a<const BASE_ADDR: usize> {
 }
 
 
+#[allow(dead_code)]
 impl<const BASE_ADDR: usize> NS16550a<BASE_ADDR> {
     pub fn new() -> Self {
         let inner = NS16550aInner {

@@ -1,17 +1,21 @@
 use core::fmt::{self, Write};
+use embassy_futures::block_on;
 
-use crate::drivers::chardev::CharDevice;
-use crate::drivers::chardev::UART;
+use crate::drivers::chardev::{ASYNC_UART};
 
 struct Stdout;
 
 impl Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for c in s.chars() {
-            UART.write(c as u8);
+            block_on(write(c));
         }
         Ok(())
     }
+}
+
+async fn write(ch: char) {
+    ASYNC_UART.clone().write(ch as u8).await;
 }
 
 pub fn print(args: fmt::Arguments) {

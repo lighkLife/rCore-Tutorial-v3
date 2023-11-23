@@ -9,11 +9,9 @@ use bitflags::*;
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
 use crate::sync::UPIntrFreeCell;
+use crate::timer::get_time;
 
-///! Ref: https://www.lammertbies.nl/comm/info/serial-uart
-///! Ref: ns16550a datasheet: https://datasheetspdf.com/pdf-file/605590/NationalSemiconductor/NS16550A/1
-///! Ref: ns16450 datasheet: https://datasheetspdf.com/pdf-file/1311818/NationalSemiconductor/NS16450/1
-use super::CharDevice;
+
 
 bitflags! {
     /// InterruptEnableRegister
@@ -77,9 +75,14 @@ struct WriteWithoutDLAB {
     _padding1: ReadOnly<u16>,
 }
 
+///! Ref: https://www.lammertbies.nl/comm/info/serial-uart
+///! Ref: ns16550a datasheet: https://datasheetspdf.com/pdf-file/605590/NationalSemiconductor/NS16550A/1
+///! Ref: ns16450 datasheet: https://datasheetspdf.com/pdf-file/1311818/NationalSemiconductor/NS16450/1
 pub struct NS16550aRaw {
     base_addr: usize,
-    waker_list: VecDeque<Waker>,
+    read_waker_list: VecDeque<Waker>,
+    write_waker_list: VecDeque<Waker>,
+    read_buffer: VecDeque<u8>,
 }
 
 impl NS16550aRaw {
@@ -92,7 +95,11 @@ impl NS16550aRaw {
     }
 
     pub fn new(base_addr: usize) -> Self {
-        Self { base_addr, waker_list: VecDeque::new() }
+        Self { base_addr,
+            read_buffer: VecDeque::new(),
+            read_waker_list: VecDeque::new(),
+            write_waker_list: VecDeque::new(),
+        }
     }
 
     pub fn init(&mut self) {
@@ -106,66 +113,24 @@ impl NS16550aRaw {
         read_end.ier.write(ier);
     }
 
-    pub fn read(self: &Arc<Self>) -> AsyncCharReader {
-        AsyncCharReader {
-            raw: self.clone()
-        }
-    }
-
-    pub fn write(self: &Arc<Self>, ch: u8) -> AsyncCharWriter {
-        AsyncCharWriter {
-            raw: self.clone(),
-            ch,
-        }
-    }
-}
-
-
-struct AsyncCharWriter {
-    raw: Arc<NS16550aRaw>,
-    ch: u8,
-}
-
-impl Future for AsyncCharWriter {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let write_end = self.raw.write_end();
-        if write_end.lsr.read().contains(LSR::THR_EMPTY) {
-            // writable
-            write_end.thr.write(self.ch);
-            Ready(())
+    pub fn read(&mut self) -> Option<u8> {
+        let read_end = self.read_end();
+        let lsr = read_end.lsr.read();
+        if lsr.contains(LSR::DATA_AVAILABLE) {
+            Some(read_end.rbr.read())
         } else {
-            let waker = cx.waker().clone();
-            self.raw.waker_list.push_back(waker);
-            Pending
+            None
         }
     }
-}
 
-struct AsyncCharReader {
-    raw: Arc<NS16550aRaw>,
-}
-
-impl Future for AsyncCharReader {
-    type Output = u8;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let read_end = self.raw.read_end();
-        if read_end.lsr.read().contains(LSR::DATA_AVAILABLE) {
-            // writable
-            let ch = read_end.rbr.read();
-            Ready(ch)
-        } else {
-            let waker = cx.waker().clone();
-            self.raw.waker_list.push_back(waker);
-            Pending
-        }
+    pub fn writable(&mut self) -> bool {
+        let write_end = self.write_end();
+        write_end.lsr.read().contains(LSR::THR_EMPTY)
     }
 }
-
 
 pub struct AsyncNS16550a<const BASE_ADDR: usize> {
-    inner: UPIntrFreeCell<NS16550aRaw>,
+    inner: Arc<UPIntrFreeCell<NS16550aRaw>>,
 }
 
 impl<const BASE_ADDR: usize> AsyncNS16550a<BASE_ADDR> {
@@ -173,37 +138,85 @@ impl<const BASE_ADDR: usize> AsyncNS16550a<BASE_ADDR> {
         let inner = NS16550aRaw::new(BASE_ADDR);
         //inner.ns16550a.init();
         Self {
-            inner: unsafe { UPIntrFreeCell::new(inner) },
+            inner: Arc::new(unsafe { UPIntrFreeCell::new(inner) }),
         }
     }
-
-    pub fn read_buffer_is_empty(&self) -> bool {
-        true
-    }
-}
-
-impl<const BASE_ADDR: usize> CharDevice for AsyncNS16550a<BASE_ADDR> {
-    fn init(&self) {
-        let mut inner = self.inner.exclusive_access();
-        inner.init();
+    pub fn init(&self) {
+        let inner = self.inner.clone();
+        inner.exclusive_access().init();
         drop(inner);
     }
 
-    async fn read(&self) -> u8 {
-        let mut inner = self.inner.exclusive_access();
-        inner.read().await
+    pub fn read(self: Arc<Self>) -> AsyncCharReader<BASE_ADDR> {
+        AsyncCharReader { ns16550a: self }
     }
-    async fn write(&self, ch: u8) {
-        let mut inner = self.inner.exclusive_access();
-        inner.write(ch).await
+    pub fn write(self: Arc<Self>, ch: u8) -> AsyncCharWriter<BASE_ADDR> {
+        AsyncCharWriter { ns16550a: self, ch }
     }
 
-    fn handle_irq(&self) {
-        self.inner.exclusive_session(|inner| {
-            if let Some(waker) = inner.waker_list.pop_front() {
-                waker.clone().wake();
+    pub fn handle_irq(&self) {
+        self.inner.clone().exclusive_session(|inner| {
+            if let Some(ch) = inner.read() {
+                if let Some(waker) = inner.read_waker_list.pop_front() {
+                    inner.read_buffer.push_back(ch);
+                    waker.clone().wake();
+                }
+            }
+
+            if inner.writable() {
+                if let Some(waker) = inner.write_waker_list.pop_front() {
+                    waker.clone().wake();
+                }
             }
         });
+    }
+}
+
+
+pub struct AsyncCharWriter<const BASE_ADDR: usize> {
+    ns16550a: Arc<AsyncNS16550a<BASE_ADDR>>,
+    ch: u8,
+}
+
+impl<const BASE_ADDR: usize> Future for AsyncCharWriter<BASE_ADDR> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut raw = self.ns16550a.inner.exclusive_access();
+        let write_end = raw.write_end();
+        if write_end.lsr.read().contains(LSR::THR_EMPTY) {
+            // writable
+            write_end.thr.write(self.ch);
+            Ready(())
+        } else {
+            let waker = cx.waker().clone();
+            raw.write_waker_list.push_back(waker);
+            Pending
+        }
+    }
+}
+
+pub struct AsyncCharReader<const BASE_ADDR: usize> {
+    ns16550a: Arc<AsyncNS16550a<BASE_ADDR>>,
+}
+
+impl<const BASE_ADDR: usize> Future for AsyncCharReader<BASE_ADDR> {
+    type Output = u8;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let clone = self.ns16550a.clone();
+        let mut raw = clone.inner.exclusive_access();
+        if let Some(ch) = raw.read_buffer.pop_front() {
+            // readable
+            drop(raw);
+            println!("ready {}", get_time());
+            Ready(ch)
+        } else {
+            let waker = cx.waker().clone();
+            raw.read_waker_list.push_back(waker);
+            drop(raw);
+            println!("pending");
+            Pending
+        }
     }
 }
 

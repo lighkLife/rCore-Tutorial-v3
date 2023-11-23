@@ -76,24 +76,31 @@ pub mod thread {
 
             loop {
                 unsafe {
+                    println!("executor poll 1");
                     self.inner.poll();
+                    println!("executor poll 2");
                     if SIGNAL_WORK_FINISH.load(Ordering::SeqCst) {
                         //work finish
+                        println!("work finish");
                         break;
                     }
+                    println!("executor poll 3");
                     // we do not care about race conditions between the load and store operations, interrupts
                     //will only set this value to true.
-                    critical_section::with(|_| {
+                    // critical_section::with(|_| {
+                        println!("executor poll 4");
                         // if there is work to do, loop back to polling
                         // TODO can we relax this?
                         if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
+                            println!("executor poll 5");
                             SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
                         }
                         // if not, wait for interrupt
-                        // else {
-                        //     core::arch::asm!("wfi");
-                        // }
-                    });
+                        else {
+                            println!("executor poll 6");
+                            core::arch::asm!("wfi");
+                        }
+                    // });
                     // if an interrupt occurred while waiting, it will be serviced here
                 }
             }

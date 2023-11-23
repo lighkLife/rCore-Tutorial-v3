@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use embassy_executor::Spawner;
 use static_cell::StaticCell;
 
-use crate::drivers::chardev::{CharDevice, Executor, ASYNC_UART, UART, WorkMarker};
+use crate::drivers::chardev::{Executor, ASYNC_UART, WorkMarker};
 use crate::fs::{open_file, OpenFlags};
 use crate::mm::{translated_ref, translated_refmut, translated_str};
 use crate::task::{
@@ -28,19 +28,6 @@ pub fn sys_get_time() -> isize {
     get_time_ms() as isize
 }
 
-pub fn uart_test() -> isize {
-    let start = get_time_ms();
-    for i in 0..20 {
-        for ch in 33..123 {
-            for _ in 0..250 {
-                UART.write(ch as u8);
-            }
-            UART.write('\n' as u8);
-        }
-    }
-    (get_time_ms() - start) as isize
-}
-
 
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
@@ -56,12 +43,12 @@ pub fn async_uart_test() -> isize {
 
 #[embassy_executor::task]
 pub async fn send_data(_spawner: Spawner) {
-    for i in 0..20 {
+    for _ in 0..20 {
         for ch in 33..123 {
             for _ in 0..250 {
-                ASYNC_UART.write(ch as u8).await;
+                ASYNC_UART.clone().write(ch as u8).await;
             }
-            ASYNC_UART.write('\n' as u8).await;
+            ASYNC_UART.clone().write('\n' as u8).await;
         }
     }
     // mark work as finished

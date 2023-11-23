@@ -14,9 +14,7 @@ use sync::UPIntrFreeCell;
 
 //use crate::drivers::{GPU_DEVICE, KEYBOARD_DEVICE, MOUSE_DEVICE, INPUT_CONDVAR};
 use crate::drivers::{GPU_DEVICE, KEYBOARD_DEVICE, MOUSE_DEVICE};
-use crate::drivers::chardev::CharDevice;
-use crate::drivers::chardev::UART;
-
+use crate::drivers::chardev::ASYNC_UART;
 
 #[path = "boards/qemu.rs"]
 mod board;
@@ -58,7 +56,7 @@ lazy_static! {
 pub fn rust_main() -> ! {
     clear_bss();
     mm::init();
-    UART.init();
+    ASYNC_UART.init();
     println!("KERN: init gpu");
     let _gpu = GPU_DEVICE.clone();
     println!("KERN: init keyboard");

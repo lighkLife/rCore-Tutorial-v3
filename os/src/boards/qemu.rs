@@ -1,6 +1,6 @@
 use crate::drivers::{KEYBOARD_DEVICE, MOUSE_DEVICE};
 use crate::drivers::block::BLOCK_DEVICE;
-use crate::drivers::chardev::{ASYNC_UART, CharDevice, UART};
+use crate::drivers::chardev::{ASYNC_UART};
 use crate::drivers::plic::{IntrTargetPriority, PLIC};
 
 pub const CLOCK_FREQ: usize = 12500000;
@@ -13,10 +13,6 @@ pub const MMIO: &[(usize, usize)] = &[
 ];
 
 pub type BlockDeviceImpl = crate::drivers::block::VirtIOBlock;
-
-#[cfg(not(feature = "async"))]
-pub type CharDeviceImpl = crate::drivers::chardev::NS16550a<VIRT_UART>;
-#[cfg(feature = "async")]
 pub type AsyncCharDeviceImpl = crate::drivers::chardev::AsyncNS16550a<VIRT_UART>;
 
 
