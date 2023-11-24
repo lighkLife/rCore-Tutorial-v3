@@ -108,7 +108,6 @@ impl NS16550aRaw {
         }
     }
 
-
     pub fn write(&mut self, ch: u8) {
         let write_end = self.write_end();
         loop {
@@ -130,8 +129,6 @@ pub struct NS16550a<const BASE_ADDR: usize> {
     condvar: Condvar,
 }
 
-
-#[allow(dead_code)]
 impl<const BASE_ADDR: usize> NS16550a<BASE_ADDR> {
     pub fn new() -> Self {
         let inner = NS16550aInner {
@@ -150,7 +147,6 @@ impl<const BASE_ADDR: usize> NS16550a<BASE_ADDR> {
             .exclusive_session(|inner| inner.read_buffer.is_empty())
     }
 }
-
 
 impl<const BASE_ADDR: usize> CharDevice for NS16550a<BASE_ADDR> {
     fn init(&self) {
@@ -171,8 +167,6 @@ impl<const BASE_ADDR: usize> CharDevice for NS16550a<BASE_ADDR> {
             }
         }
     }
-
-
     fn write(&self, ch: u8) {
         let mut inner = self.inner.exclusive_access();
         inner.ns16550a.write(ch);

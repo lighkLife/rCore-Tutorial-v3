@@ -1,6 +1,6 @@
 use embassy_futures::block_on;
 
-use crate::drivers::chardev::ASYNC_UART;
+use crate::drivers::chardev::{ASYNC_UART, CharDevice, UART};
 use crate::mm::UserBuffer;
 
 use super::File;
@@ -18,7 +18,10 @@ impl File for Stdin {
     }
     fn read(&self, mut user_buf: UserBuffer) -> usize {
         assert_eq!(user_buf.len(), 1);
+        #[cfg(feature = "async")]
         let ch = block_on(read_char());
+        #[cfg(not(feature = "async"))]
+        let ch = UART.read();
         unsafe {
             user_buf.buffers[0].as_mut_ptr().write_volatile(ch);
         }
@@ -29,6 +32,7 @@ impl File for Stdin {
     }
 }
 
+#[cfg(feature = "async")]
 pub async fn read_char() -> u8{
     ASYNC_UART.clone().read().await
 }

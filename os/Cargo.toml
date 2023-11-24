@@ -26,5 +26,8 @@ embassy-sync = "0.4.0"
 static_cell = "2.0.0"
 riscv = { version = "0.10.1", features = ["critical-section-single-hart"] }
 
+[features]
+async=[]
+
 [profile.release]
 debug = true

@@ -14,6 +14,7 @@ pub const MMIO: &[(usize, usize)] = &[
 
 pub type BlockDeviceImpl = crate::drivers::block::VirtIOBlock;
 pub type AsyncCharDeviceImpl = crate::drivers::chardev::AsyncNS16550a<VIRT_UART>;
+pub type CharDeviceImpl = crate::drivers::chardev::NS16550a<VIRT_UART>;
 
 
 pub const VIRT_PLIC: usize = 0xC00_0000;
