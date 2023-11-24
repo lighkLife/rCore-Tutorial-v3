@@ -9,9 +9,6 @@ use bitflags::*;
 use volatile::{ReadOnly, Volatile, WriteOnly};
 
 use crate::sync::UPIntrFreeCell;
-use crate::timer::get_time;
-
-
 
 bitflags! {
     /// InterruptEnableRegister
@@ -208,14 +205,16 @@ impl<const BASE_ADDR: usize> Future for AsyncCharReader<BASE_ADDR> {
         if let Some(ch) = raw.read_buffer.pop_front() {
             // readable
             drop(raw);
-            println!("ready {}", get_time());
             Ready(ch)
         } else {
             let waker = cx.waker().clone();
-            raw.read_waker_list.push_back(waker);
-            drop(raw);
-            println!("pending");
-            Pending
+            let will_wake = raw.read_waker_list.iter()
+                .any(|x| x.will_wake(&waker));
+            if !will_wake {
+                raw.read_waker_list.push_back(waker);
+                drop(raw);
+            }
+            return Pending;
         }
     }
 }

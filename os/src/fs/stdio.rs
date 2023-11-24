@@ -1,5 +1,6 @@
-use static_cell::StaticCell;
-use crate::drivers::chardev::{ASYNC_UART, Executor, WorkMarker};
+use embassy_futures::block_on;
+
+use crate::drivers::chardev::ASYNC_UART;
 use crate::mm::UserBuffer;
 
 use super::File;
@@ -17,7 +18,7 @@ impl File for Stdin {
     }
     fn read(&self, mut user_buf: UserBuffer) -> usize {
         assert_eq!(user_buf.len(), 1);
-        let ch = read();
+        let ch = block_on(read_char());
         unsafe {
             user_buf.buffers[0].as_mut_ptr().write_volatile(ch);
         }
@@ -28,24 +29,8 @@ impl File for Stdin {
     }
 }
 
-static EXECUTOR : StaticCell<Executor> = StaticCell::new();
-pub fn read() -> u8 {
-    println!("1111");
-    let executor = EXECUTOR.init(Executor::new());
-    executor.run(|spawner| {
-        spawner.spawn(send_data()).unwrap();
-    });
-    'H' as u8
-}
-
-#[embassy_executor::task]
-pub async fn send_data() {
-    println!("read 1");
-    let ch = ASYNC_UART.clone().read().await;
-    println!("read {}", ch);
-    // mark work as finished
-    let mark = WorkMarker {};
-    mark.mark_finish();
+pub async fn read_char() -> u8{
+    ASYNC_UART.clone().read().await
 }
 
 impl File for Stdout {

@@ -24,8 +24,7 @@
 //!
 //! [1]: https://docs.rs/lazy_static/latest/lazy_static/
 
-#![no_std]
-
+#[allow(dead_code)]
 use core::cell::UnsafeCell;
 use core::fmt;
 use core::mem::MaybeUninit;
@@ -43,7 +42,7 @@ pub struct LazyInit<T> {
 
 unsafe impl<T: Send + Sync> Sync for LazyInit<T> {}
 unsafe impl<T: Send> Send for LazyInit<T> {}
-
+#[warn(dead_code)]
 impl<T> LazyInit<T> {
     /// Creates a new uninitialized value.
     pub const fn new() -> Self {

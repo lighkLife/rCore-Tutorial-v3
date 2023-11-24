@@ -5,7 +5,7 @@ pub mod thread {
     // use portable_atomic::{AtomicBool, Ordering};
 
     use embassy_executor::{raw, Spawner};
-    use riscv::_export::critical_section;
+    // use riscv::_export::critical_section;
 
     /// global atomic used to keep track of whether there is work to do since sev() is not available on RISCV
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
