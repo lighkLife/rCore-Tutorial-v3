@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["BS","CR","DL","LF"],"fn":["compute_pi","mock_other_resource","send_data","sys_exec","sys_exit","sys_fork","sys_get_time","sys_getpid","sys_kill","sys_waitpid","sys_yield","uart_test"],"static":["EXECUTOR"]};
