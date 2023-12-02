@@ -58,8 +58,8 @@ pub fn rust_main() -> ! {
     mm::init();
     #[cfg(feature = "async")]
     ASYNC_UART.init();
-    // #[cfg(not(feature = "async"))]
-    // UART.init();
+    #[cfg(feature = "sync")]
+    UART.init();
 
     println!("KERN: init gpu");
     let _gpu = GPU_DEVICE.clone();

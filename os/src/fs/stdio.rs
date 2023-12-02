@@ -20,7 +20,7 @@ impl File for Stdin {
         assert_eq!(user_buf.len(), 1);
         #[cfg(feature = "async")]
         let ch = block_on(read_char());
-        #[cfg(not(feature = "async"))]
+        #[cfg(feature = "sync")]
         let ch = UART.read();
         unsafe {
             user_buf.buffers[0].as_mut_ptr().write_volatile(ch);

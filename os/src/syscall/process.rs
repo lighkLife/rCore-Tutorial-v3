@@ -1,18 +1,21 @@
+use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use embassy_executor::Spawner;
 use static_cell::StaticCell;
+use crate::console::print;
 
-use crate::drivers::chardev::{Executor, ASYNC_UART, WorkMarker, UART, CharDevice};
+use crate::drivers::chardev::{Executor, ASYNC_UART, WorkMarker, CharDevice, UART};
 use crate::fs::{open_file, OpenFlags};
 use crate::mm::{translated_ref, translated_refmut, translated_str};
 use crate::task::{
     current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
     SignalFlags, suspend_current_and_run_next,
 };
-use crate::timer::get_time_ms;
+use crate::timer::{get_time, get_time_ms};
 
 pub fn sys_exit(exit_code: i32) -> ! {
     exit_current_and_run_next(exit_code);
@@ -28,6 +31,10 @@ pub fn sys_get_time() -> isize {
     get_time_ms() as isize
 }
 
+const LF: u8 = 0x0au8;
+const CR: u8 = 0x0du8;
+const DL: u8 = 0x7fu8;
+const BS: u8 = 0x08u8;
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
@@ -40,14 +47,17 @@ pub fn uart_test() -> isize {
             spawner.spawn(send_data(spawner)).unwrap();
         });
     }
-    #[cfg(not(feature = "async"))]
+    #[cfg(feature = "sync")]
     {
-        for _ in 0..20 {
-            for ch in 33..123 {
-                for _ in 0..250 {
-                    UART.write(ch as u8);
-                }
-                UART.write('\n' as u8);
+        let mut  cmd = String::new();
+        loop {
+            mock_other_resource();
+            let ch = UART.read();
+            cmd.push(ch as char);
+            print!("{}", ch as char);
+            if cmd.len() >= 20 {
+                println!("You Got It!");
+                break;
             }
         }
     }
@@ -69,6 +79,33 @@ pub async fn send_data(_spawner: Spawner) {
     mark.mark_finish();
 }
 
+pub fn mock_other_resource() -> f64 {
+    compute_pi()
+}
+
+fn compute_pi() -> f64 {
+    let start = get_time_ms();
+    let mut sum = 0.0;
+    let mut i = 1;
+    let mut j = 0;
+    while i < 1_000_000_0 {
+        let it = 1f64 / i as f64;
+        if j % 2 == 0 {
+            sum += it;
+        } else {
+            sum -= it;
+        }
+        i += 2;
+        j += 1;
+    }
+
+    let result = 4.0 * sum;
+    println!("{}", result);
+    println!("============================");
+    println!("pi:   {}ms", get_time_ms() - start);
+    println!("============================");
+    return result;
+}
 
 pub fn sys_getpid() -> isize {
     current_task().unwrap().process.upgrade().unwrap().getpid() as isize

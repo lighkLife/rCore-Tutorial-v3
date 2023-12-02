@@ -1,6 +1,6 @@
 use crate::drivers::{KEYBOARD_DEVICE, MOUSE_DEVICE};
 use crate::drivers::block::BLOCK_DEVICE;
-use crate::drivers::chardev::{ASYNC_UART};
+use crate::drivers::chardev::{ASYNC_UART, CharDevice, UART};
 use crate::drivers::plic::{IntrTargetPriority, PLIC};
 
 pub const CLOCK_FREQ: usize = 12500000;
@@ -49,7 +49,10 @@ pub fn irq_handler() {
         5 => KEYBOARD_DEVICE.handle_irq(),
         6 => MOUSE_DEVICE.handle_irq(),
         8 => BLOCK_DEVICE.handle_irq(),
+        #[cfg(feature = "async")]
         10 => ASYNC_UART.handle_irq(),
+        #[cfg(feature = "sync")]
+        10 => UART.handle_irq(),
         _ => panic!("unsupported IRQ {}", intr_src_id),
     }
     plic.complete(0, IntrTargetPriority::Supervisor, intr_src_id);

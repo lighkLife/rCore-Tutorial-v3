@@ -28,6 +28,8 @@ riscv = { version = "0.10.1", features = ["critical-section-single-hart"] }
 
 [features]
 async=[]
+sync=[]
+default=["async"]
 
 [profile.release]
 debug = true

@@ -10,7 +10,7 @@ impl Write for Stdout {
         for c in s.chars() {
             #[cfg(feature = "async")]
             block_on(write(c));
-            #[cfg(not(feature = "async"))]
+            #[cfg(feature = "sync")]
             UART.write(c as u8);
         }
         Ok(())
